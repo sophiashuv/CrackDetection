@@ -128,7 +128,7 @@ def train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperpara
     return history
 
 
-def evaluate_model(model, X_test, y_test, args, zip_path, hyperparams):
+def evaluate_model(model, X_test, y_test, args, zip_path, hyperparams, seed=42):
     print("Evaluating model...")
 
     results = model.evaluate(X_test, y_test, batch_size=args.batch_size)
@@ -143,22 +143,25 @@ def evaluate_model(model, X_test, y_test, args, zip_path, hyperparams):
     visualization_folder = os.path.join(zip_path, "visualization")
     os.makedirs(visualization_folder, exist_ok=True)
 
+    np.random.seed(seed)
+    random_indices = np.random.choice(len(X_test), size=20, replace=False)
+
     print("Saving predictions to visualization folder...")
-    for i in range(3):
+    for i, idx in enumerate(random_indices):
         plt.figure(figsize=(10, 3))
 
         plt.subplot(1, 3, 1)
-        plt.imshow(X_test[i])
+        plt.imshow(X_test[idx])
         plt.title("Input")
         plt.axis("off")
 
         plt.subplot(1, 3, 2)
-        plt.imshow(y_test[i].squeeze(), cmap="gray")
+        plt.imshow(y_test[idx].squeeze(), cmap="gray")
         plt.title("Ground Truth")
         plt.axis("off")
 
         plt.subplot(1, 3, 3)
-        plt.imshow(y_pred[i].squeeze(), cmap="viridis")
+        plt.imshow(y_pred[idx].squeeze(), cmap="viridis")
         plt.title("Prediction Heatmap")
         plt.axis("off")
 
@@ -168,6 +171,7 @@ def evaluate_model(model, X_test, y_test, args, zip_path, hyperparams):
         plt.close()
 
     print(f"Visualizations saved in '{visualization_folder}' folder.")
+
     hyperparams["test"] = {
         "batch_size": args.batch_size,
         "loss": results[0],
@@ -196,7 +200,7 @@ def create_zip_and_cleanup(source_folder, destination_folder, zip_name):
 
 def main(args):
     os.makedirs(args.output_dir, exist_ok=True)
-    zip_path = os.path.join(args.output_dir, "model_" + "%Y%m%d-%H%M%S")
+    zip_path = os.path.join(args.output_dir, "model_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
     os.makedirs(zip_path, exist_ok=True)
 
     hyperparams = {}
@@ -232,7 +236,7 @@ def main(args):
         json.dump(hyperparams, json_file, indent=4)
     print(f"Hyperparameters saved to {file_path}")
 
-    create_zip_and_cleanup(zip_path, args.output_dir, "model_" + "%Y%m%d-%H%M%S")
+    create_zip_and_cleanup(zip_path, args.output_dir, "model_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
 
 if __name__ == "__main__":
