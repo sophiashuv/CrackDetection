@@ -11,7 +11,10 @@ from sklearn.model_selection import train_test_split
 from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping
 from tensorflow.keras.metrics import MeanIoU
+from CNN import CNNModel
+from UNET import UNETModel
 
+# AUGMENTATION HERE
 
 def load_data(base_folder, image_size):
     inputs = []
@@ -56,36 +59,24 @@ def split_data(inputs, masks):
     X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
     return X_train, X_val, X_test, y_train, y_val, y_test
 
+def create_model(input_shape, model_name):
+    if model_name == "CNN":
+        model_class = CNNModel(input_shape)
+    elif model_name == "UNET":
+        model_class = UNETModel(input_shape)
+    else:
+        raise ValueError(f"Unknown model name: {model_name}")
 
-def create_model(input_shape):
-    inputs = layers.Input(shape=input_shape)
+    return model_class.build()
 
-    # Encoder
-    x = layers.Conv2D(32, (3, 3), activation="relu", padding="same")(inputs)
-    x = layers.MaxPooling2D((2, 2))(x)
-
-    x = layers.Conv2D(64, (3, 3), activation="relu", padding="same")(x)
-    x = layers.MaxPooling2D((2, 2))(x)
-
-    # Bottleneck
-    x = layers.Conv2D(128, (3, 3), activation="relu", padding="same")(x)
-
-    # Decoder
-    x = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding="same", activation="relu")(x)
-    x = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding="same", activation="relu")(x)
-
-    outputs = layers.Conv2D(1, (1, 1), activation="sigmoid")(x)
-    return models.Model(inputs, outputs)
-
-
-def train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperparams):
+def train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperparams, model_name):
     model.compile(optimizer=args.optimizer, loss=args.loss, metrics=[args.metrics])
 
     log_dir = os.path.join("logs", "fit", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
     tensorboard_callback = TensorBoard(log_dir=log_dir, histogram_freq=1)
 
     model_save_path = os.path.join(
-        zip_path, f"model_epoch-{{epoch:02d}}_val_loss-{{val_loss:.4f}}.h5"
+        zip_path, f"{model_name}_epoch-{{epoch:02d}}_val_loss-{{val_loss:.4f}}.h5"
     )
 
     checkpoint = ModelCheckpoint(
@@ -220,11 +211,11 @@ def main(args):
     hyperparams["test_size"] = X_test.shape[0]
 
     print("Creating model...")
-    model = create_model((args.image_size[0], args.image_size[1], 3))
+    model = create_model((args.image_size[0], args.image_size[1], 3), model_name=args.model_name)
     print(model.summary())
 
     print("Training model...")
-    history = train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperparams)
+    history = train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperparams, model_name=args.model_name)
 
     print("Training completed.")
 
@@ -251,6 +242,7 @@ if __name__ == "__main__":
     parser.add_argument("--loss", type=str, default="binary_crossentropy", help="Loss function for training.")
     parser.add_argument("--metrics", type=str, default="accuracy", help="Metrics to evaluate during training.")
     parser.add_argument("--output_dir", type=str, help="Where to save models.")
+    parser.add_argument("--model_name", type=str, default="CNN", help="Name of the model to use.")
 
     args = parser.parse_args()
     main(args)
