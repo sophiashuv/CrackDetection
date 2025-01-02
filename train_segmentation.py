@@ -1,20 +1,84 @@
-import os
 import argparse
 import datetime
 import json
-import cv2
+import os
 import shutil
+import glob
 from zipfile import ZipFile
+
+import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import albumentations as A
+from sklearn.metrics import precision_score, recall_score, f1_score, roc_curve, precision_recall_curve, auc
 from sklearn.model_selection import train_test_split
-from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping
 from tensorflow.keras.metrics import MeanIoU
+from tensorflow.keras.models import load_model
+
 from CNN import CNNModel
 from UNET import UNETModel
 
-# AUGMENTATION HERE
+
+def augment_data(X_train, y_train, augment_params, save_vis=False):
+    augmented_images = []
+    augmented_masks = []
+
+    transform = A.Compose([
+        A.HorizontalFlip(p=augment_params.get("horizontal_flip", 0.5)),
+        A.ShiftScaleRotate(
+            shift_limit=augment_params.get("shift_limit", 0.05),
+            scale_limit=augment_params.get("scale_limit", 0.1),
+            rotate_limit=augment_params.get("rotate_limit", 50),
+            p=augment_params.get("shift_scale_rotate_p", 0.5)
+        )
+    ])
+
+    num_augmentations = len(X_train) // 2
+    for _ in range(num_augmentations):
+        for img, mask in zip(X_train, y_train):
+            augmented = transform(image=img, mask=mask)
+            augmented_images.append(augmented["image"])
+            augmented_masks.append(augmented["mask"])
+            if len(augmented_images) >= num_augmentations:
+                break
+        if len(augmented_images) >= num_augmentations:
+            break
+    if save_vis:
+        augmented_images_ = (np.array(augmented_images) * 255).astype(np.uint8)
+        augmented_masks_ = (np.array(augmented_masks) * 255).astype(np.uint8)
+        original_images_ = (X_train * 255).astype(np.uint8)
+        original_masks_ = (y_train * 255).astype(np.uint8)
+
+        for i in range(min(10, len(augmented_images_))):
+            plt.figure(figsize=(15, 7))
+
+            plt.subplot(2, 2, 1)
+            plt.imshow(original_images_[i])
+            plt.title("Original Image")
+            plt.axis("off")
+
+            plt.subplot(2, 2, 2)
+            plt.imshow(original_masks_[i].squeeze(), cmap="gray")
+            plt.title("Original Mask")
+            plt.axis("off")
+
+            plt.subplot(2, 2, 3)
+            plt.imshow(augmented_images_[i])
+            plt.title("Augmented Image")
+            plt.axis("off")
+
+            plt.subplot(2, 2, 4)
+            plt.imshow(augmented_masks_[i].squeeze(), cmap="gray")
+            plt.title("Augmented Mask")
+            plt.axis("off")
+
+            plt.tight_layout()
+            plt.savefig(f"/workspace/augmentation_comparison_{i + 1}.png")
+            plt.close()
+
+    return np.array(augmented_images), np.array(augmented_masks)
+
 
 def load_data(base_folder, image_size):
     inputs = []
@@ -47,7 +111,7 @@ def load_data(base_folder, image_size):
             mask_image = cv2.resize(mask_image, image_size) / 255.0
 
             mask_image = np.expand_dims(mask_image, axis=-1)
-
+            mask_image = (mask_image > 0.5).astype(np.uint8)
             inputs.append(input_image)
             masks.append(mask_image)
 
@@ -59,6 +123,7 @@ def split_data(inputs, masks):
     X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
     return X_train, X_val, X_test, y_train, y_val, y_test
 
+
 def create_model(input_shape, model_name):
     if model_name == "CNN":
         model_class = CNNModel(input_shape)
@@ -68,6 +133,7 @@ def create_model(input_shape, model_name):
         raise ValueError(f"Unknown model name: {model_name}")
 
     return model_class.build()
+
 
 def train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperparams, model_name):
     model.compile(optimizer=args.optimizer, loss=args.loss, metrics=[args.metrics])
@@ -81,27 +147,41 @@ def train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperpara
 
     checkpoint = ModelCheckpoint(
         filepath=model_save_path,
-        save_best_only=True,
+        save_best_only=False,
         monitor="val_loss",
         mode="min"
     )
 
-    early_stopping = EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
     history = model.fit(
         X_train, y_train,
         validation_data=(X_val, y_val),
         batch_size=args.batch_size,
         epochs=args.epochs,
-        callbacks=[checkpoint, tensorboard_callback, early_stopping]
+        callbacks=[checkpoint, tensorboard_callback]
     )
 
     print(f"TensorBoard logs are stored in: {log_dir}")
+    min_val_loss = float("inf")
+    best_model_path = None
+
+    for epoch in range(args.epochs):
+        epoch_model_path = os.path.join(
+            zip_path, f"{model_name}_epoch-{epoch + 1:02d}_val_loss-*.h5"
+        )
+        for file in sorted(glob.glob(epoch_model_path)):
+            val_loss = float(file.split("val_loss-")[-1].split(".h5")[0])
+            if val_loss < min_val_loss:
+                min_val_loss = val_loss
+                best_model_path = file
+
+    print(f"Loading best model from {best_model_path} with validation loss {min_val_loss}")
+    best_model = load_model(best_model_path)
 
     stopped_epoch = len(history.history["loss"])
     final_train_loss = history.history["loss"][-1]
     final_val_loss = history.history["val_loss"][-1]
-    final_train_accuracy = history.history["accuracy"][-1]
-    final_val_accuracy = history.history["val_accuracy"][-1]
+    final_train_accuracy = history.history.get("accuracy", [None])[-1]
+    final_val_accuracy = history.history.get("val_accuracy", [None])[-1]
 
     hyperparams["training"] = {
         "optimizer": args.optimizer,
@@ -116,28 +196,77 @@ def train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperpara
         "final_val_accuracy": final_val_accuracy
     }
     hyperparams["time"] = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    return history
+    return best_model, history
+
+
+def dice_coefficient(y_true, y_pred):
+    intersection = np.sum(y_true * y_pred)
+    return (2. * intersection) / (np.sum(y_true) + np.sum(y_pred) + 1e-7)
 
 
 def evaluate_model(model, X_test, y_test, args, zip_path, hyperparams, seed=42):
     print("Evaluating model...")
 
     results = model.evaluate(X_test, y_test, batch_size=args.batch_size)
-    print(f"Test Loss: {results[0]}, Test Accuracy: {results[1]}")
-
     iou_metric = MeanIoU(num_classes=2)
     y_pred = model.predict(X_test, batch_size=args.batch_size)
-    iou_metric.update_state(y_test, y_pred)
+    iou_metric.update_state(y_test, y_pred > 0.5)
     iou_score = iou_metric.result().numpy()
-    print(f"Mean IoU: {iou_score}")
+
+    thresholds = np.arange(0.1, 1.0, 0.1)
+    best_threshold = 0.5
+    best_dice = 0
+    threshold_results = {}
+
+    for threshold in thresholds:
+        y_pred_thresh = (y_pred > threshold).astype(np.uint8)
+        current_dice = dice_coefficient(y_test.flatten(), y_pred_thresh.flatten())
+        threshold_results[threshold] = {
+            "Dice Coefficient": current_dice
+        }
+        if current_dice > best_dice:
+            best_dice = current_dice
+            best_threshold = threshold
+    y_pred_binary = (y_pred > best_threshold).astype(np.uint8)
+    precision = precision_score(y_test.flatten(), y_pred_binary.flatten())
+    recall = recall_score(y_test.flatten(), y_pred_binary.flatten())
+    f1 = f1_score(y_test.flatten(), y_pred_binary.flatten())
+    dice = dice_coefficient(y_test.flatten(), y_pred_binary.flatten())
 
     visualization_folder = os.path.join(zip_path, "visualization")
     os.makedirs(visualization_folder, exist_ok=True)
 
+    y_test_flat = y_test.flatten()
+    y_pred_flat = y_pred.flatten()
+
+    fpr, tpr, _ = roc_curve(y_test_flat, y_pred_flat)
+    roc_auc = auc(fpr, tpr)
+    plt.figure()
+    plt.plot(fpr, tpr, label=f"ROC curve (area = {roc_auc:.2f})")
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("Receiver Operating Characteristic")
+    plt.legend(loc="lower right")
+    roc_plot_path = os.path.join(visualization_folder, "roc_curve.png")
+    plt.savefig(roc_plot_path)
+    plt.close()
+
+    precision_vals, recall_vals, _ = precision_recall_curve(y_test_flat, y_pred_flat)
+    pr_auc = auc(recall_vals, precision_vals)
+    plt.figure()
+    plt.plot(recall_vals, precision_vals, label=f"PR curve (area = {pr_auc:.2f})")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title("Precision-Recall Curve")
+    plt.legend(loc="lower left")
+    pr_plot_path = os.path.join(visualization_folder, "precision_recall_curve.png")
+    plt.savefig(pr_plot_path)
+    plt.close()
+
     np.random.seed(seed)
     random_indices = np.random.choice(len(X_test), size=20, replace=False)
 
-    print("Saving predictions to visualization folder...")
     for i, idx in enumerate(random_indices):
         plt.figure(figsize=(10, 3))
 
@@ -161,16 +290,20 @@ def evaluate_model(model, X_test, y_test, args, zip_path, hyperparams, seed=42):
         plt.savefig(output_dir)
         plt.close()
 
-    print(f"Visualizations saved in '{visualization_folder}' folder.")
-
     hyperparams["test"] = {
         "batch_size": args.batch_size,
         "loss": results[0],
         "accuracy": results[1],
-        "mean iou": float(iou_score)
+        "mean_iou": float(iou_score),
+        "precision": float(precision),
+        "recall": float(recall),
+        "f1_score": float(f1),
+        "dice_coefficient": float(dice),
+        "best_threshold": float(best_threshold),
+        "threshold_investigation": threshold_results,
+        "roc_auc": float(roc_auc),
+        "pr_auc": float(pr_auc),
     }
-
-    return visualization_folder
 
 
 def create_zip_and_cleanup(source_folder, destination_folder, zip_name):
@@ -204,11 +337,29 @@ def main(args):
 
     print("Splitting data...")
     X_train, X_val, X_test, y_train, y_val, y_test = split_data(inputs, masks)
+    print(np.unique(y_test))
 
     print(f"Train shape: {X_train.shape}, Validation shape: {X_val.shape}, Test shape: {X_test.shape}")
     hyperparams["train_size"] = X_train.shape[0]
     hyperparams["validation_size"] = X_val.shape[0]
     hyperparams["test_size"] = X_test.shape[0]
+
+    print("Applying data augmentation...")
+    augment_params = {
+        "horizontal_flip": 0.5,
+        "shift_limit": 0.05,
+        "scale_limit": 0.1,
+        "rotate_limit": 50,
+        "shift_scale_rotate_p": 0.5
+    }
+
+    X_aug, y_aug = augment_data(X_train, y_train, augment_params)
+    X_train = np.concatenate((X_train, X_aug))
+    y_train = np.concatenate((y_train, y_aug))
+
+    print(f"Data after augmentation: Train shape: {X_train.shape}, Mask shape: {y_train.shape}")
+    hyperparams["augmentation"] = augment_params
+    hyperparams["train_size_after_augmentation"] = X_train.shape[0]
 
     print("Creating model...")
     model = create_model((args.image_size[0], args.image_size[1], 3), model_name=args.model_name)
