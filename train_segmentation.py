@@ -175,11 +175,14 @@ def train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperpara
                 min_val_loss = val_loss
                 best_model_path = file
                 best_epoch = epoch + 1
+    for file in glob.glob(os.path.join(zip_path, f"{model_name}_epoch-*_val_loss-*.h5")):
+        if file != best_model_path:
+            os.remove(file)
+    print(f"Retained only the best model: {best_model_path}")
 
     print(f"Loading best model from {best_model_path} with validation loss {min_val_loss}")
     best_model = load_model(best_model_path)
 
-    stopped_epoch = len(history.history["loss"])
     final_train_loss = history.history["loss"][-1]
     final_val_loss = history.history["val_loss"][-1]
     final_train_accuracy = history.history.get("accuracy", [None])[-1]
