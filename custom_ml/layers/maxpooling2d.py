@@ -7,21 +7,21 @@ class MaxPooling2D:
         self.stride = stride
         self.padding = padding
 
-    def _pad_input(self, X):
-        if self.padding == 'same':
-            pad_h = ((self.pool_size[0] - 1) // 2, (self.pool_size[0] - 1) // 2)
-            pad_w = ((self.pool_size[1] - 1) // 2, (self.pool_size[1] - 1) // 2)
-            return np.pad(X, ((0, 0), pad_h, pad_w, (0, 0)), mode='constant')
-        return X
+    # def _pad_input(self, X):
+    #     if self.padding == 'same':
+    #         pad_h = ((self.pool_size[0] - 1) // 2, (self.pool_size[0] - 1) // 2)
+    #         pad_w = ((self.pool_size[1] - 1) // 2, (self.pool_size[1] - 1) // 2)
+    #         return np.pad(X, ((0, 0), pad_h, pad_w, (0, 0)), mode='constant')
+    #     return X
 
     def forward(self, X):
         self.X = pad_X(X, self.padding, self.pool_size, self.stride)
         batch_size, in_height, in_width, in_channels = self.X.shape
 
-        out_height = (in_height - self.pool_size[0]) // self.stride + 1
-        out_width = (in_width - self.pool_size[1]) // self.stride + 1
-
+        out_height = np.floor(self.X.shape[1] / self.stride).astype(int)
+        out_width = np.floor(self.X.shape[2] / self.stride).astype(int)
         self.output = np.zeros((batch_size, out_height, out_width, in_channels))
+
         self.max_indices = np.zeros_like(self.X, dtype=bool)
 
         for b in range(batch_size):

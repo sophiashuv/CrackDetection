@@ -111,13 +111,13 @@ if __name__ == "__main__":
     parser_tiler.add_argument("--output_base_folder", help="Where to save cropped data", required=True)
 
     parser_tiler.add_argument("--tile_size", help="Size of the tiles in pixels as a tuple (height, width).",
-                              nargs=2, type=int, default=[64, 64])
+                              nargs=2, type=int, default=[128, 128])
     parser_tiler.add_argument("--resize_size",
                               help="Size to which tiles are resized in pixels as a tuple (height, width).",
-                              nargs=2, type=int, default=[64, 64])
+                              nargs=2, type=int, default=[128, 128])
     parser_tiler.add_argument("--overlap_size",
                               help="Size of overlap between tiles in pixels as a tuple (height, width).",
-                              nargs=2, type=int, default=[16, 16])
+                              nargs=2, type=int, default=[32, 32])
 
     parser_tiler.set_defaults(func=tiler_handler)
 
