@@ -163,6 +163,7 @@ def train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperpara
     print(f"TensorBoard logs are stored in: {log_dir}")
     min_val_loss = float("inf")
     best_model_path = None
+    best_epoch = 0
 
     for epoch in range(args.epochs):
         epoch_model_path = os.path.join(
@@ -173,6 +174,7 @@ def train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperpara
             if val_loss < min_val_loss:
                 min_val_loss = val_loss
                 best_model_path = file
+                best_epoch = epoch + 1
 
     print(f"Loading best model from {best_model_path} with validation loss {min_val_loss}")
     best_model = load_model(best_model_path)
@@ -189,11 +191,12 @@ def train_model(model, X_train, y_train, X_val, y_val, args, zip_path, hyperpara
         "metrics": [args.metrics],
         "batch_size": args.batch_size,
         "total_epochs": args.epochs,
-        "stopped_epoch": stopped_epoch,
+        "best_epoch": best_epoch,
         "final_train_loss": final_train_loss,
         "final_val_loss": final_val_loss,
         "final_train_accuracy": final_train_accuracy,
-        "final_val_accuracy": final_val_accuracy
+        "final_val_accuracy": final_val_accuracy,
+        "best_model_path": best_model_path
     }
     hyperparams["time"] = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     return best_model, history
