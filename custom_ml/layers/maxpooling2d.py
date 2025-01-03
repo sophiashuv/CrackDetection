@@ -1,61 +1,35 @@
-from layers.utils import *
+import numpy as np
 
 
-class MaxPooling2D:
-    def __init__(self, pool_size=(2, 2), stride=2, padding='valid'):
+class MaxPoolLayer:
+    def __init__(self, pool_size):
         self.pool_size = pool_size
-        self.stride = stride
-        self.padding = padding
 
-    # def _pad_input(self, X):
-    #     if self.padding == 'same':
-    #         pad_h = ((self.pool_size[0] - 1) // 2, (self.pool_size[0] - 1) // 2)
-    #         pad_w = ((self.pool_size[1] - 1) // 2, (self.pool_size[1] - 1) // 2)
-    #         return np.pad(X, ((0, 0), pad_h, pad_w, (0, 0)), mode='constant')
-    #     return X
-
-    def forward(self, X):
-        self.X = pad_X(X, self.padding, self.pool_size, self.stride)
-        batch_size, in_height, in_width, in_channels = self.X.shape
-
-        out_height = np.floor(self.X.shape[1] / self.stride).astype(int)
-        out_width = np.floor(self.X.shape[2] / self.stride).astype(int)
-        self.output = np.zeros((batch_size, out_height, out_width, in_channels))
-
-        self.max_indices = np.zeros_like(self.X, dtype=bool)
-
-        for b in range(batch_size):
-            for c in range(in_channels):
-                for i in range(out_height):
-                    for j in range(out_width):
-                        h_start = i * self.stride
-                        h_end = h_start + self.pool_size[0]
-                        w_start = j * self.stride
-                        w_end = w_start + self.pool_size[1]
-
-                        region = self.X[b, h_start:h_end, w_start:w_end, c]
-                        max_val = np.max(region)
-                        self.output[b, i, j, c] = max_val
-                        self.max_indices[b, h_start:h_end, w_start:w_end, c] = (region == max_val)
-
+    def forward(self, x):
+        self.input = x
+        self.output = np.zeros((
+            x.shape[0],
+            x.shape[1],
+            x.shape[2] // self.pool_size,
+            x.shape[3] // self.pool_size
+        ))
+        self.max_indices = {}
+        for b in range(x.shape[0]):
+            for c in range(x.shape[1]):
+                for i in range(self.output.shape[2]):
+                    for j in range(self.output.shape[3]):
+                        patch = x[b, c, i*self.pool_size:(i+1)*self.pool_size, j*self.pool_size:(j+1)*self.pool_size]
+                        self.output[b, c, i, j] = np.max(patch)
+                        self.max_indices[(b, c, i, j)] = np.unravel_index(np.argmax(patch), patch.shape)
         return self.output
 
-    def backward(self, d_out, learning_rate):
-        dX = np.zeros_like(self.X)
-
-        batch_size, out_height, out_width, in_channels = d_out.shape
-
-        for b in range(batch_size):
-            for c in range(in_channels):
-                for i in range(out_height):
-                    for j in range(out_width):
-                        h_start = i * self.stride
-                        h_end = h_start + self.pool_size[0]
-                        w_start = j * self.stride
-                        w_end = w_start + self.pool_size[1]
-
-                        dX[b, h_start:h_end, w_start:w_end, c] += (
-                            d_out[b, i, j, c] * self.max_indices[b, h_start:h_end, w_start:w_end, c] * learning_rate
-                        )
-
-        return dX
+    def backward(self, grad_output):
+        grad_input = np.zeros_like(self.input)
+        for b in range(self.output.shape[0]):
+            for c in range(self.output.shape[1]):
+                for i in range(self.output.shape[2]):
+                    for j in range(self.output.shape[3]):
+                        max_index = self.max_indices[(b, c, i, j)]
+                        grad_input[b, c, i*self.pool_size + max_index[0], j*self.pool_size + max_index[1]] = \
+                            grad_output[b, c, i, j]
+        return grad_input
