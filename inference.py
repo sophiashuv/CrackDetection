@@ -50,12 +50,13 @@ def apply_model_to_tile(model, tile):
 
 
 def remove_small_blobs(mask, min_size):
-    labeled_array, num_features = label(mask)
+    mask_cleaned = np.copy(mask)
+    labeled_array, num_features = label(mask_cleaned)
     for i in range(1, num_features + 1):
         blob = labeled_array == i
         if np.sum(blob) < min_size:
-            mask[blob] = 0
-    return mask
+            mask_cleaned[blob] = 0
+    return mask_cleaned
 
 
 def normalize_mask(mask):
@@ -122,7 +123,8 @@ def process_images(model, input_folder, output_folder, tile_size, overlap_size, 
 
             gt_mask = None
             if gt_folder is not None:
-                gt_path = os.path.join(gt_folder, filename)
+                mask_filename = f"{os.path.splitext(filename)[0]}_label.PNG"
+                gt_path = os.path.join(gt_folder, mask_filename)
                 if os.path.exists(gt_path):
                     gt_mask = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
 
@@ -187,7 +189,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_folder", help="Path to save the output segmentation masks.", required=True)
     parser.add_argument("--tile_size", nargs=2, type=int, default=[64, 64], help="Tile size as (width, height).")
     parser.add_argument("--resize_size", nargs=2, type=int, default=[64, 64], help="Resize size as (width, height).")
-    parser.add_argument("--overlap_size", nargs=2, type=int, default=[16, 16], help="Overlap size as (width, height).")
+    parser.add_argument("--overlap_size", nargs=2, type=int, default=[32, 32], help="Overlap size as (width, height).")
     parser.add_argument("--threshold", type=float, default=0.5, help="Threshold for segmentation prediction.")
     parser.add_argument("--min_blob_size", type=int, default=100, help="Minimum size of blobs to keep.")
     parser.add_argument("--gt_folder", help="Path to the folder with ground truth segmentation masks.", default=None)
