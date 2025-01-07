@@ -7,7 +7,6 @@ class UNETModel:
     def build(self):
         inputs = layers.Input(shape=self.input_shape)
 
-        # Encoder
         c1 = layers.Conv2D(32, (3, 3), activation="relu", padding="same")(inputs)
         c1 = layers.Conv2D(32, (3, 3), activation="relu", padding="same")(c1)
         p1 = layers.MaxPooling2D((2, 2))(c1)
