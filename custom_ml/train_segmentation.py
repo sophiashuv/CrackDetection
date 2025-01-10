@@ -78,7 +78,7 @@ def split_data(inputs, masks):
 
 
 class CrackSegmentationModel:
-    def __init__(self, input_shape):
+    def __init__(self):
         self.conv1 = ConvLayer(input_channels=3, output_channels=16, kernel_size=3)
         self.relu1 = ReLU()
         self.pool1 = MaxPoolLayer(pool_size=2)
@@ -296,7 +296,7 @@ def train_handler(args):
     Y = np.transpose(Y, (0, 3, 1, 2))
     X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, Y)
 
-    model = CrackSegmentationModel(input_shape=tuple(args.image_size) + (3,))
+    model = CrackSegmentationModel()
     trainer = BinarySegmentationTrainer(model, input_shape=tuple(args.image_size) + (3,))
 
     trainer.train(X_train, y_train, X_val, y_val, epochs=args.epochs, batch_size=args.batch_size,
